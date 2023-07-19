@@ -2094,11 +2094,9 @@ struct SquareGradGradFunctor : public BaseActivationFunctor<T> {
 #if defined(__NVCC__) || defined(__HIPCC__) || defined(__xpu__)
 template <typename T>
 struct CudaReluFunctor : public BaseActivationFunctor<T> {
-  T zero = static_cast<T>(0.0f);
-
   // relu(x) = max(x, 0)
-  __device__ __forceinline__ T operator()(const T x) const {
-    return x > zero ? x : zero;
+  __device__ __forceinline__ T operator()(const T v) const {
+    return v * (v > static_cast<T>(0) ? static_cast<T>(1) : static_cast<T>(0));
   }
 };
 
