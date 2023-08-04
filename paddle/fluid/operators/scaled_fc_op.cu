@@ -40,17 +40,17 @@ template <typename T>
 __global__ void kernel_cast_and_padding(const int N, 
                       const unsigned int rown_ori, const unsigned int coln_ori,
                       const unsigned int rown_pad, const unsigned int coln_pad,
-                      const T* matrix, paddle::platform::float16* matrix_pad,
+                      const T* matrix, paddle::platform::bfloat16* matrix_pad,
                       T grad_scale_factor) {
   CUDA_KERNEL_LOOP(i, N) { 
       int col_idx = i % coln_pad;
       int row_idx = i / coln_pad;
       if (row_idx < rown_ori && col_idx < coln_ori) {
           int idx = row_idx * coln_ori + col_idx;
-          //matrix_pad[i] = static_cast<paddle::platform::float16>(matrix[idx]);
-          matrix_pad[i] = static_cast<paddle::platform::float16>(matrix[idx] * grad_scale_factor);
+          //matrix_pad[i] = static_cast<paddle::platform::bfloat16>(matrix[idx]);
+          matrix_pad[i] = static_cast<paddle::platform::bfloat16>(matrix[idx] * grad_scale_factor);
       } else {
-          matrix_pad[i] = static_cast<paddle::platform::float16>(0.0);
+          matrix_pad[i] = static_cast<paddle::platform::bfloat16>(0.0);
       }
   }
 }
@@ -59,7 +59,7 @@ template <typename T>
 void cast_and_padding(cudaStream_t stream, 
                       const unsigned int rown_ori, const unsigned int coln_ori,
                       const unsigned int rown_pad, const unsigned int coln_pad, 
-                      const T* matrix, paddle::platform::float16* matrix_pad,
+                      const T* matrix, paddle::platform::bfloat16* matrix_pad,
                       T grad_scale_factor) {
                       //T grad_scale_factor = static_cast<T>(1.0)) {
   int N = rown_pad * coln_pad;
@@ -74,7 +74,7 @@ template <typename T>
 __global__ void kernel_cast_and_cut(const int N, 
                       const unsigned int rown_ori, const unsigned int coln_ori,
                       const unsigned int rown_pad, const unsigned int coln_pad,
-                      T* matrix, paddle::platform::float16* matrix_pad,
+                      T* matrix, paddle::platform::bfloat16* matrix_pad,
                       T scale_factor) {
   CUDA_KERNEL_LOOP(i, N) { 
       int col_idx = i % coln_ori;
@@ -94,7 +94,7 @@ template <typename T>
 void cast_and_cut(cudaStream_t stream, 
                       const unsigned int rown_ori, const unsigned int coln_ori,
                       const unsigned int rown_pad, const unsigned int coln_pad, 
-                      T* matrix, paddle::platform::float16* matrix_pad,
+                      T* matrix, paddle::platform::bfloat16* matrix_pad,
                       T scale_factor) {
   int N = rown_ori * coln_ori;
   kernel_cast_and_cut<<<GET_BLOCKS(N), CUDA_NUM_THREADS, 0, stream>>>(
@@ -154,6 +154,9 @@ class ScaledFCCUDAKernel : public framework::OpKernel<T> {
     auto input_scale_factor = ctx.Attr<float>("input_scale_factor");
     auto bias_scale_factor = ctx.Attr<float>("bias_scale_factor");
 
+    input_scale_factor = 1.0;
+    bias_scale_factor = 1.0;
+
     auto input_dims = input->dims();
     auto w_dims = w->dims();
     auto ins_num = input_dims[0];  // oriinput: ins_num*in_feat, oriweight: in_feat* out_fea, output: ins_num* out_feat
@@ -179,21 +182,21 @@ class ScaledFCCUDAKernel : public framework::OpKernel<T> {
     const unsigned int outfea_pad = (outfea_ori % 8) == 0 ? outfea_ori : outfea_ori + (8 - outfea_ori % 8);
 
     framework::Tensor input_help;
-    input_help = ctx.AllocateTmpTensor<paddle::platform::float16, DeviceContext>({insnum_pad, infea_pad}, dev_ctx);
+    input_help = ctx.AllocateTmpTensor<paddle::platform::bfloat16, DeviceContext>({insnum_pad, infea_pad}, dev_ctx);
 
     framework::Tensor w_help;
-    w_help = ctx.AllocateTmpTensor<paddle::platform::float16, DeviceContext>({infea_pad, outfea_pad}, dev_ctx);
+    w_help = ctx.AllocateTmpTensor<paddle::platform::bfloat16, DeviceContext>({infea_pad, outfea_pad}, dev_ctx);
 
     framework::Tensor bias_help;
-    bias_help = ctx.AllocateTmpTensor<paddle::platform::float16, DeviceContext>({outfea_pad, 1}, dev_ctx);
+    bias_help = ctx.AllocateTmpTensor<paddle::platform::bfloat16, DeviceContext>({outfea_pad, 1}, dev_ctx);
 
     framework::Tensor output_help;
-    output_help = ctx.AllocateTmpTensor<paddle::platform::float16, DeviceContext>({insnum_pad, outfea_pad}, dev_ctx);
+    output_help = ctx.AllocateTmpTensor<paddle::platform::bfloat16, DeviceContext>({insnum_pad, outfea_pad}, dev_ctx);
 
     T scale = static_cast<T>(1.0);
-    cast_and_padding<T>(ctx.cuda_device_context().stream(), insnum_ori, infea_ori, insnum_pad, infea_pad, input->data<T>(), input_help.mutable_data<paddle::platform::float16>(ctx.GetPlace()), scale);
-    cast_and_padding<T>(ctx.cuda_device_context().stream(), infea_ori, outfea_ori, infea_pad, outfea_pad, w->data<T>(), w_help.mutable_data<paddle::platform::float16>(ctx.GetPlace()), scale);
-    cast_and_padding<T>(ctx.cuda_device_context().stream(), outfea_ori, 1, outfea_pad, 1, bias->data<T>(), bias_help.mutable_data<paddle::platform::float16>(ctx.GetPlace()), scale);
+    cast_and_padding<T>(ctx.cuda_device_context().stream(), insnum_ori, infea_ori, insnum_pad, infea_pad, input->data<T>(), input_help.mutable_data<paddle::platform::bfloat16>(ctx.GetPlace()), scale);
+    cast_and_padding<T>(ctx.cuda_device_context().stream(), infea_ori, outfea_ori, infea_pad, outfea_pad, w->data<T>(), w_help.mutable_data<paddle::platform::bfloat16>(ctx.GetPlace()), scale);
+    cast_and_padding<T>(ctx.cuda_device_context().stream(), outfea_ori, 1, outfea_pad, 1, bias->data<T>(), bias_help.mutable_data<paddle::platform::bfloat16>(ctx.GetPlace()), scale);
     VLOG(3) << "input dim0=" << input->dims()[0] << ", input dim1=" << input->dims()[1]
             << ", input_help dim0=" << input_help.dims()[0] << ", input_help dim1=" << input_help.dims()[1];
     VLOG(3) << "w dim0=" << w->dims()[0] << ", w dim1=" << w->dims()[1]
@@ -206,21 +209,21 @@ class ScaledFCCUDAKernel : public framework::OpKernel<T> {
     CBLAS_TRANSPOSE transA = CblasNoTrans;
     CBLAS_TRANSPOSE transB = CblasNoTrans;
 
-    auto blas = phi::funcs::GetBlas<GPUCtx, paddle::platform::float16>(dev_ctx);
+    auto blas = phi::funcs::GetBlas<GPUCtx, paddle::platform::bfloat16>(dev_ctx);
 
-    paddle::platform::float16 alpha = static_cast<paddle::platform::float16>(input_scale_factor);
-    paddle::platform::float16 bias_scale_factor_use = static_cast<paddle::platform::float16>(bias_scale_factor);
-    paddle::platform::float16 beta = static_cast<paddle::platform::float16>(0.0);
+    paddle::platform::bfloat16 alpha = static_cast<paddle::platform::bfloat16>(input_scale_factor);
+    paddle::platform::bfloat16 bias_scale_factor_use = static_cast<paddle::platform::bfloat16>(bias_scale_factor);
+    paddle::platform::bfloat16 beta = static_cast<paddle::platform::bfloat16>(0.0);
 
-    blas.GEMM(transA, transB, insnum_pad, outfea_pad, infea_pad, alpha, input_help.data<paddle::platform::float16>(), w_help.data<paddle::platform::float16>(), beta, output_help.mutable_data<paddle::platform::float16>(ctx.GetPlace()));
-    vec_mat_row_add<paddle::platform::float16>(ctx.cuda_device_context().stream(), insnum_pad, outfea_pad,
-                       output_help.data<paddle::platform::float16>(), bias_help.data<paddle::platform::float16>(), bias_scale_factor_use);
+    blas.GEMM(transA, transB, insnum_pad, outfea_pad, infea_pad, alpha, input_help.data<paddle::platform::bfloat16>(), w_help.data<paddle::platform::bfloat16>(), beta, output_help.mutable_data<paddle::platform::bfloat16>(ctx.GetPlace()));
+    vec_mat_row_add<paddle::platform::bfloat16>(ctx.cuda_device_context().stream(), insnum_pad, outfea_pad,
+                       output_help.data<paddle::platform::bfloat16>(), bias_help.data<paddle::platform::bfloat16>(), bias_scale_factor_use);
 
     T scale_factor = static_cast<T>(1 / input_scale_factor);
     VLOG(3) << "input_scale_factor=" << input_scale_factor
             << ", bias_scale_factor_use=" << bias_scale_factor_use
             << ", output scale_factor=" << scale_factor;
-    cast_and_cut<T>(ctx.cuda_device_context().stream(), insnum_ori, outfea_ori, insnum_pad, outfea_pad, output->data<T>(), output_help.data<paddle::platform::float16>(), scale_factor);
+    cast_and_cut<T>(ctx.cuda_device_context().stream(), insnum_ori, outfea_ori, insnum_pad, outfea_pad, output->data<T>(), output_help.data<paddle::platform::bfloat16>(), scale_factor);
     VLOG(3) << "output_help dim0=" << output_help.dims()[0] << ", output_help dim1=" << output_help.dims()[1]
             << ", output dim0=" << output->dims()[0] << ", output dim1=" << output->dims()[1];
   }
@@ -239,8 +242,8 @@ class ScaledFCGradOpCUDAKernel : public framework::OpKernel<T> {
     auto grad_scale_factor = ctx.Attr<float>("grad_scale_factor");
 
     T bias_scale_factor_use = static_cast<T>(bias_scale_factor);
-    paddle::platform::float16 alpha = static_cast<paddle::platform::float16>(input_scale_factor);
-    paddle::platform::float16 beta = static_cast<paddle::platform::float16>(0.0);
+    paddle::platform::bfloat16 alpha = static_cast<paddle::platform::bfloat16>(input_scale_factor);
+    paddle::platform::bfloat16 beta = static_cast<paddle::platform::bfloat16>(0.0);
 
     auto* dx = ctx.Output<Tensor>(framework::GradVarName("Input"));
     auto* dw = ctx.Output<Tensor>(framework::GradVarName("W"));
@@ -285,32 +288,32 @@ class ScaledFCGradOpCUDAKernel : public framework::OpKernel<T> {
             << ", outfea_ori=" << outfea_ori << ", outfea_pad=" << outfea_pad;
 
     framework::Tensor dx_help;
-    dx_help = ctx.AllocateTmpTensor<paddle::platform::float16, DeviceContext>({insnum_pad, infea_pad}, dev_ctx);
+    dx_help = ctx.AllocateTmpTensor<paddle::platform::bfloat16, DeviceContext>({insnum_pad, infea_pad}, dev_ctx);
 
     framework::Tensor dw_help;
-    dw_help = ctx.AllocateTmpTensor<paddle::platform::float16, DeviceContext>({infea_pad, outfea_pad}, dev_ctx);
+    dw_help = ctx.AllocateTmpTensor<paddle::platform::bfloat16, DeviceContext>({infea_pad, outfea_pad}, dev_ctx);
 
     framework::Tensor dout_help;
-    dout_help = ctx.AllocateTmpTensor<paddle::platform::float16, DeviceContext>({insnum_pad, outfea_pad}, dev_ctx);
+    dout_help = ctx.AllocateTmpTensor<paddle::platform::bfloat16, DeviceContext>({insnum_pad, outfea_pad}, dev_ctx);
 
     framework::Tensor input_help;
-    input_help = ctx.AllocateTmpTensor<paddle::platform::float16, DeviceContext>({insnum_pad, infea_pad}, dev_ctx);
+    input_help = ctx.AllocateTmpTensor<paddle::platform::bfloat16, DeviceContext>({insnum_pad, infea_pad}, dev_ctx);
 
     framework::Tensor w_help;
-    w_help = ctx.AllocateTmpTensor<paddle::platform::float16, DeviceContext>({infea_pad, outfea_pad}, dev_ctx);
+    w_help = ctx.AllocateTmpTensor<paddle::platform::bfloat16, DeviceContext>({infea_pad, outfea_pad}, dev_ctx);
 
     T scale = static_cast<T>(1.0);
-    cast_and_padding<T>(ctx.cuda_device_context().stream(), insnum_ori, infea_ori, insnum_pad, infea_pad, input->data<T>(), input_help.mutable_data<paddle::platform::float16>(ctx.GetPlace()), scale);
-    cast_and_padding<T>(ctx.cuda_device_context().stream(), infea_ori, outfea_ori, infea_pad, outfea_pad, w->data<T>(), w_help.mutable_data<paddle::platform::float16>(ctx.GetPlace()), scale);
+    cast_and_padding<T>(ctx.cuda_device_context().stream(), insnum_ori, infea_ori, insnum_pad, infea_pad, input->data<T>(), input_help.mutable_data<paddle::platform::bfloat16>(ctx.GetPlace()), scale);
+    cast_and_padding<T>(ctx.cuda_device_context().stream(), infea_ori, outfea_ori, infea_pad, outfea_pad, w->data<T>(), w_help.mutable_data<paddle::platform::bfloat16>(ctx.GetPlace()), scale);
     T dout_grad_scale_factor = static_cast<T>(grad_scale_factor) * static_cast<T>(1 / input_scale_factor);
-    cast_and_padding<T>(ctx.cuda_device_context().stream(), insnum_ori, outfea_ori, insnum_pad, outfea_pad, dout->data<T>(), dout_help.mutable_data<paddle::platform::float16>(ctx.GetPlace()), dout_grad_scale_factor);
+    cast_and_padding<T>(ctx.cuda_device_context().stream(), insnum_ori, outfea_ori, insnum_pad, outfea_pad, dout->data<T>(), dout_help.mutable_data<paddle::platform::bfloat16>(ctx.GetPlace()), dout_grad_scale_factor);
 
     
-    auto blas = phi::funcs::GetBlas<GPUCtx, paddle::platform::float16>(dev_ctx);
+    auto blas = phi::funcs::GetBlas<GPUCtx, paddle::platform::bfloat16>(dev_ctx);
     //dx = dy * w^T
-    blas.GEMM(CblasNoTrans, CblasTrans, insnum_pad, infea_pad, outfea_pad, alpha, dout_help.data<paddle::platform::float16>(), w_help.data<paddle::platform::float16>(), beta, dx_help.mutable_data<paddle::platform::float16>(ctx.GetPlace()));
+    blas.GEMM(CblasNoTrans, CblasTrans, insnum_pad, infea_pad, outfea_pad, alpha, dout_help.data<paddle::platform::bfloat16>(), w_help.data<paddle::platform::bfloat16>(), beta, dx_help.mutable_data<paddle::platform::bfloat16>(ctx.GetPlace()));
     //dw = x^T * dy
-    blas.GEMM(CblasTrans, CblasNoTrans, infea_pad, outfea_pad, insnum_pad, alpha, input_help.data<paddle::platform::float16>(), dout_help.data<paddle::platform::float16>(), beta, dw_help.mutable_data<paddle::platform::float16>(ctx.GetPlace()));
+    blas.GEMM(CblasTrans, CblasNoTrans, infea_pad, outfea_pad, insnum_pad, alpha, input_help.data<paddle::platform::bfloat16>(), dout_help.data<paddle::platform::bfloat16>(), beta, dw_help.mutable_data<paddle::platform::bfloat16>(ctx.GetPlace()));
 
     //cast dx dw to fp32 and cut
     //T scale_factor = static_cast<T>(1 / input_scale_factor);
@@ -321,8 +324,8 @@ class ScaledFCGradOpCUDAKernel : public framework::OpKernel<T> {
             << ", dout_grad_scale_factor=" << dout_grad_scale_factor
             << ", dx_grad dw_grad scale_factor=" << scale_factor;
 
-    cast_and_cut<T>(ctx.cuda_device_context().stream(), insnum_ori, infea_ori, insnum_pad, infea_pad, dx->data<T>(), dx_help.data<paddle::platform::float16>(), scale_factor);
-    cast_and_cut<T>(ctx.cuda_device_context().stream(), infea_ori, outfea_ori, infea_pad, outfea_pad, dw->data<T>(), dw_help.data<paddle::platform::float16>(), scale_factor);
+    cast_and_cut<T>(ctx.cuda_device_context().stream(), insnum_ori, infea_ori, insnum_pad, infea_pad, dx->data<T>(), dx_help.data<paddle::platform::bfloat16>(), scale_factor);
+    cast_and_cut<T>(ctx.cuda_device_context().stream(), infea_ori, outfea_ori, infea_pad, outfea_pad, dw->data<T>(), dw_help.data<paddle::platform::bfloat16>(), scale_factor);
 
     // end cast and pad
   }
@@ -334,10 +337,10 @@ class ScaledFCGradOpCUDAKernel : public framework::OpKernel<T> {
 namespace ops = paddle::operators;
 REGISTER_OP_CUDA_KERNEL(scaled_fc, ops::ScaledFCCUDAKernel<GPUCtx, float>,
                         ops::ScaledFCCUDAKernel<GPUCtx, double>);
-                        //ops::ScaledFCCUDAKernel<GPUCtx, paddle::platform::float16>);
+                        //ops::ScaledFCCUDAKernel<GPUCtx, paddle::platform::bfloat16>);
 
 REGISTER_OP_CUDA_KERNEL(scaled_fc_grad,
                         ops::ScaledFCGradOpCUDAKernel<GPUCtx, float>,
                         ops::ScaledFCGradOpCUDAKernel<GPUCtx, double>);
-                        //ops::ScaledFCGradOpCUDAKernel<GPUCtx, paddle::platform::float16>);
+                        //ops::ScaledFCGradOpCUDAKernel<GPUCtx, paddle::platform::bfloat16>);
                       
