@@ -2103,6 +2103,14 @@ struct CudaReluFunctor : public BaseActivationFunctor<T> {
 };
 
 template <typename T>
+struct QuantSafeCudaReluFunctor : public BaseActivationFunctor<T> {
+  // relu(x) = max(x, 0)
+  __device__ __forceinline__ T operator()(const T v) const {
+    return v * (v > static_cast<T>(0) ? static_cast<T>(1) : static_cast<T>(0));
+  }
+};
+
+template <typename T>
 struct CudaReluGradFunctor : public BaseActivationFunctor<T> {
   T zero = static_cast<T>(0.0f);
 

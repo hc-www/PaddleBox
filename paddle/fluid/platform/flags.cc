@@ -1057,3 +1057,13 @@ PADDLE_DEFINE_EXPORTED_bool(
 PADDLE_DEFINE_EXPORTED_string(jit_engine_type,
                               "PE",
                               "Choose default funciton type in JitLayer.");
+
+/**
+ * PTQ
+ * Name: FLAGS_enable_quant_safe_relu
+ * Value Range: bool, default=false
+ */
+PADDLE_DEFINE_EXPORTED_bool(
+    enable_quant_safe_relu,
+    false,
+    "keep propagating abnormal values (nan/inf) in relu");

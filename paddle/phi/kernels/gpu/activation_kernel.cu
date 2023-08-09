@@ -23,6 +23,8 @@ limitations under the License. */
 #include "paddle/phi/kernels/impl/activation_grad_impl.h"
 #include "paddle/phi/kernels/impl/activation_impl.h"
 
+DECLARE_bool(enable_quant_safe_relu);
+
 namespace phi {
 
 template <typename T, typename Context, typename Functor>
@@ -87,7 +89,6 @@ DEFINE_GPU_ACTIVATION_KERNEL(Cosh, CudaCoshFunctor)
 DEFINE_GPU_ACTIVATION_KERNEL(Asinh, CudaAsinhFunctor)
 DEFINE_GPU_ACTIVATION_KERNEL(Acosh, CudaAcoshFunctor)
 DEFINE_GPU_ACTIVATION_KERNEL(Atanh, CudaAtanhFunctor)
-DEFINE_GPU_ACTIVATION_KERNEL(Relu, CudaReluFunctor)
 DEFINE_GPU_ACTIVATION_KERNEL(Tanh, CudaTanhFunctor)
 DEFINE_GPU_ACTIVATION_KERNEL(TanhShrink, CudaTanhShrinkFunctor)
 DEFINE_GPU_ACTIVATION_KERNEL(Silu, CudaSiluFunctor)
@@ -147,6 +148,19 @@ void HardSwishKernel(const Context& dev_ctx,
   *(attrs[2].second) = offset;
   ActivationGPUImpl<T, Context, funcs::CudaHardSwishFunctor<T>>(
       dev_ctx, x, out, functor);
+}
+
+template <typename T, typename Context>
+void ReluKernel(const Context& dev_ctx, const DenseTensor& x, DenseTensor* out) {
+  if (FLAGS_enable_quant_safe_relu) {
+    funcs::QuantSafeCudaReluFunctor<T> functor;
+    ActivationGPUImpl<T, Context, funcs::QuantSafeCudaReluFunctor<T>>(
+      dev_ctx, x, out, functor);
+  } else {
+    funcs::CudaReluFunctor<T> functor;
+    ActivationGPUImpl<T, Context, funcs::CudaReluFunctor<T>>(
+      dev_ctx, x, out, functor);
+  }
 }
 
 }  // namespace phi
